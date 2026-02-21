@@ -21,12 +21,6 @@ pub fn validate(word: &str, policy: &PasswordPolicy) -> bool {
         return false;
     }
 
-    for required in &policy.mandatory_include {
-        if !word.contains(required) {
-            return false;
-        }
-    }
-
     for excluded in &policy.exclude {
         if word.contains(excluded) {
             return false;

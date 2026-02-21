@@ -30,14 +30,19 @@ fn collect_categories(persona: &Persona) -> Vec<Category> {
     let mut categories = Vec::new();
 
     let identity = dedup_clean({
-        let mut v = Vec::new();
-        v.extend(persona.identity.full_name.split_whitespace().map(|s| s.to_string()));
-        v.extend(persona.identity.nicknames.clone());
-        v.extend(persona.identity.spouse.clone());
-        v.extend(persona.identity.children.clone());
-        v.extend(persona.identity.pets.clone());
-        v.extend(persona.identity.maiden_names.clone());
-        v
+    let mut v = Vec::new();
+
+    v.extend(persona.identity.full_name.split_whitespace().map(|s| s.to_string()));
+    v.extend(persona.identity.nicknames.clone());
+    v.extend(persona.identity.spouse.clone());
+    v.extend(persona.identity.children.clone());
+    v.extend(persona.identity.pets.clone());
+    v.extend(persona.identity.maiden_names.clone());
+
+    // 🔥 Inject mandatory inclusion strings as seeds
+    v.extend(persona.policy.mandatory_inclusion.clone());
+
+    v
     });
 
     if !identity.is_empty() {
