@@ -40,7 +40,7 @@ fn collect_categories(persona: &Persona) -> Vec<Category> {
     v.extend(persona.identity.maiden_names.clone());
 
     // 🔥 Inject mandatory inclusion strings as seeds
-    v.extend(persona.policy.mandatory_inclusion.clone());
+    v.extend(persona.policy.mandatory_include.clone());
 
     v
     });
@@ -182,12 +182,26 @@ fn numeric_layer(word: &str, policy: &PasswordPolicy, aggressive: bool) -> Vec<S
         return vec![word.to_string()];
     }
 
-    let max = if aggressive { 10000 } else { 1000 };
-    let width = if aggressive { 4 } else { 3 };
+    let remaining = policy.max_length.saturating_sub(word.len());
+    let mut variants = Vec::new();
 
-    (0..max)
-        .map(|i| format!("{}{:0width$}", word, i, width = width))
-        .collect()
+    // In aggressive mode allow full remaining width
+    // In normal mode limit to max 3 digits
+    let max_digits = if aggressive {
+        remaining
+    } else {
+        remaining.min(3)
+    };
+
+    for digits in 1..=max_digits {
+        let max = 10usize.pow(digits as u32);
+
+        for i in 0..max {
+            variants.push(format!("{}{:0width$}", word, i, width = digits));
+        }
+    }
+
+    variants
 }
 
 fn symbol_layer(word: &str, policy: &PasswordPolicy, aggressive: bool) -> Vec<String> {
