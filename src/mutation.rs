@@ -15,7 +15,6 @@ static LEET_MAP: &[(char, char)] = &[
 
 #[derive(Clone)]
 struct Category {
-    name: &'static str,
     values: Vec<String>,
 }
 
@@ -27,7 +26,7 @@ fn dedup_clean(mut v: Vec<String>) -> Vec<String> {
     v
 }
 
-fn collect_dynamic_categories(persona: &Persona) -> Vec<Category> {
+fn collect_categories(persona: &Persona) -> Vec<Category> {
     let mut categories = Vec::new();
 
     let identity = dedup_clean({
@@ -42,7 +41,7 @@ fn collect_dynamic_categories(persona: &Persona) -> Vec<Category> {
     });
 
     if !identity.is_empty() {
-        categories.push(Category { name: "identity", values: identity });
+        categories.push(Category { values: identity });
     }
 
     let geography = dedup_clean({
@@ -55,7 +54,7 @@ fn collect_dynamic_categories(persona: &Persona) -> Vec<Category> {
     });
 
     if !geography.is_empty() {
-        categories.push(Category { name: "geography", values: geography });
+        categories.push(Category { values: geography });
     }
 
     let professional = dedup_clean({
@@ -68,7 +67,7 @@ fn collect_dynamic_categories(persona: &Persona) -> Vec<Category> {
     });
 
     if !professional.is_empty() {
-        categories.push(Category { name: "professional", values: professional });
+        categories.push(Category { values: professional });
     }
 
     let personal = dedup_clean({
@@ -81,14 +80,14 @@ fn collect_dynamic_categories(persona: &Persona) -> Vec<Category> {
     });
 
     if !personal.is_empty() {
-        categories.push(Category { name: "personal", values: personal });
+        categories.push(Category { values: personal });
     }
 
     categories
 }
 
-fn derive_all_year_fragments(persona: &Persona) -> Vec<String> {
-    let mut years = Vec::new();
+fn derive_date_fragments(persona: &Persona) -> Vec<String> {
+    let mut fragments = Vec::new();
 
     let mut all_dates = Vec::new();
     all_dates.extend(persona.chronology.birthdates.clone());
@@ -97,22 +96,26 @@ fn derive_all_year_fragments(persona: &Persona) -> Vec<String> {
     all_dates.extend(persona.chronology.employment_start.clone());
 
     for date in all_dates {
+        if date.len() >= 8 {
+            fragments.push(date[0..2].to_string());  // day
+            fragments.push(date[2..4].to_string());  // month
+            fragments.push(date[0..4].to_string());  // ddmm
+        }
         if date.len() >= 4 {
-            years.push(date[date.len()-4..].to_string());
+            fragments.push(date[date.len()-4..].to_string()); // yyyy
         }
         if date.len() >= 2 {
-            years.push(date[date.len()-2..].to_string());
+            fragments.push(date[date.len()-2..].to_string()); // yy
         }
     }
 
-    years.sort();
-    years.dedup();
-    years
+    fragments.sort();
+    fragments.dedup();
+    fragments
 }
 
 fn cross_categories(categories: &[Category]) -> Vec<String> {
     let mut results = Vec::new();
-
     let n = categories.len();
 
     // Depth 1
@@ -157,18 +160,22 @@ fn cross_categories(categories: &[Category]) -> Vec<String> {
     results
 }
 
-fn enforce_case(mut word: String, policy: &PasswordPolicy) -> String {
-    if policy.require_lower && !word.chars().any(|c| c.is_lowercase()) {
-        word = word.to_lowercase();
+fn case_variants(word: &str) -> Vec<String> {
+    let mut variants = vec![word.to_string()];
+    variants.push(word.to_lowercase());
+    variants.push(word.to_uppercase());
+
+    if let Some(first) = word.chars().next() {
+        variants.push(first.to_uppercase().collect::<String>() + &word[1..]);
     }
 
-    if policy.require_upper && !word.chars().any(|c| c.is_uppercase()) {
-        if let Some(first) = word.chars().next() {
-            word = first.to_uppercase().collect::<String>() + &word[1..];
-        }
-    }
+    variants.sort();
+    variants.dedup();
+    variants
+}
 
-    word
+fn reverse_variant(word: &str) -> String {
+    word.chars().rev().collect()
 }
 
 fn numeric_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
@@ -178,8 +185,8 @@ fn numeric_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
 
     let mut variants = Vec::new();
 
-    for i in 0..100 {
-        variants.push(format!("{}{:02}", word, i));
+    for i in 0..1000 { // 000–999
+        variants.push(format!("{}{:03}", word, i));
     }
 
     variants
@@ -190,12 +197,18 @@ fn symbol_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
         return vec![word.to_string()];
     }
 
-    SYMBOLS.iter()
-        .flat_map(|s| vec![
-            format!("{}{}", word, s),
-            format!("{}{}", s, word),
-        ])
-        .collect()
+    let mut variants = Vec::new();
+
+    for sym in SYMBOLS {
+        variants.push(format!("{}{}", word, sym));
+        variants.push(format!("{}{}", sym, word));
+
+        if word.len() > 1 {
+            variants.push(format!("{}{}{}", &word[0..1], sym, &word[1..]));
+        }
+    }
+
+    variants
 }
 
 fn leet_layer(word: &str) -> Vec<String> {
@@ -215,8 +228,8 @@ fn length_ok(word: &str, policy: &PasswordPolicy) -> bool {
 }
 
 pub fn generate(persona: &Persona) -> HashSet<String> {
-    let categories = collect_dynamic_categories(persona);
-    let years = derive_all_year_fragments(persona);
+    let categories = collect_categories(persona);
+    let date_fragments = derive_date_fragments(persona);
     let policy = &persona.policy;
 
     let base_patterns = cross_categories(&categories);
@@ -227,25 +240,24 @@ pub fn generate(persona: &Persona) -> HashSet<String> {
             let mut expanded = Vec::new();
 
             expanded.push(pattern.clone());
+            expanded.push(reverse_variant(pattern));
 
-            for year in &years {
-                expanded.push(format!("{}{}", pattern, year));
-                expanded.push(format!("{}{}", year, pattern));
+            for fragment in &date_fragments {
+                expanded.push(format!("{}{}", pattern, fragment));
+                expanded.push(format!("{}{}", fragment, pattern));
             }
 
             expanded
         })
         .flat_map(|candidate| {
 
-            // Allow shorter candidates to expand via mask layer
-        if candidate.len() > policy.max_length {
-            return Vec::new();
+            if candidate.len() > policy.max_length {
+                return Vec::new();
             }
 
-            let enforced = enforce_case(candidate, policy);
-
-            numeric_layer(&enforced, policy)
+            case_variants(&candidate)
                 .into_iter()
+                .flat_map(|c| numeric_layer(&c, policy))
                 .flat_map(|n| symbol_layer(&n, policy))
                 .flat_map(|s| leet_layer(&s))
                 .filter(|final_word| length_ok(final_word, policy))

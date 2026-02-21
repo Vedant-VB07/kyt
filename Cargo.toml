@@ -1,9 +1,9 @@
 [package]
-name = "omni-profile-gen"
+name = "KYT-Know Your Target"
 version = "1.0.0"
-edition = "2021"
-authors = ["Enterprise IAM Security"]
-description = "Authorized enterprise password auditing persona-based generator"
+edition = "2026"
+authors = ["Vedant"]
+description = "Password auditing persona-based generator"
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock"] }
