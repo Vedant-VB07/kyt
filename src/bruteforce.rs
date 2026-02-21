@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};

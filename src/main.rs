@@ -6,7 +6,6 @@ mod writer;
 mod bruteforce;
 
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use models::Persona;
 
@@ -63,18 +62,8 @@ fn main() -> anyhow::Result<()> {
         println!("[*] Generating persona-based permutations...");
     }
 
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner} {msg}")?
-    );
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
-    pb.set_message("Processing mutation engine...");
-
-    // ✅ Pass aggressive flag properly
+    // 🔥 No spinner here anymore
     let results = mutation::generate(&persona, args.aggressive);
-
-    pb.finish_with_message("Generation complete.");
 
     println!("[*] Writing {} unique entries...", results.len());
     writer::write_to_file(&persona.output_file, &results)?;

@@ -2,6 +2,8 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use crate::models::*;
 use crate::policy::validate;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::sync::Arc;
 
 static SYMBOLS: &[char] = &['!', '@', '#'];
 static SEPARATORS: &[&str] = &["", "_", "-", "."];
@@ -252,42 +254,222 @@ fn length_ok(word: &str, policy: &PasswordPolicy) -> bool {
     word.len() >= policy.min_length && word.len() <= policy.max_length
 }
 
+fn cross_categories_segments(categories: &[Category], aggressive: bool) -> Vec<Vec<String>> {
+    let mut results = Vec::new();
+    let max_depth = if aggressive { 4 } else { 3 };
+
+    fn recurse(
+        categories: &[Category],
+        current: Vec<String>,
+        depth: usize,
+        max_depth: usize,
+        results: &mut Vec<Vec<String>>,
+    ) {
+        if depth > 0 {
+            results.push(current.clone());
+        }
+
+        if depth == max_depth {
+            return;
+        }
+
+        for cat in categories {
+            for val in &cat.values {
+                let mut next = current.clone();
+                next.push(val.clone());
+                recurse(categories, next, depth + 1, max_depth, results);
+            }
+        }
+    }
+
+    for cat in categories {
+        for val in &cat.values {
+            recurse(categories, vec![val.clone()], 1, max_depth, &mut results);
+        }
+    }
+
+    results
+}
+
+fn segment_case_combinations(segments: &[String], aggressive: bool) -> Vec<String> {
+    fn case_variants(word: &str) -> Vec<String> {
+        let mut variants = vec![
+            word.to_string(),
+            word.to_lowercase(),
+            word.to_uppercase(),
+        ];
+
+        if let Some(first) = word.chars().next() {
+            variants.push(first.to_uppercase().collect::<String>() + &word[1..]);
+        }
+
+        variants.sort();
+        variants.dedup();
+        variants
+    }
+
+    fn combine(
+        segments: &[String],
+        index: usize,
+        current: Vec<String>,
+        results: &mut Vec<String>,
+        aggressive: bool,
+    ) {
+        if index == segments.len() {
+            results.push(current.join(""));
+            return;
+        }
+
+        let variants = case_variants(&segments[index]);
+
+        for var in variants {
+            let mut next = current.clone();
+            next.push(var);
+            combine(segments, index + 1, next, results, aggressive);
+        }
+
+        if aggressive {
+            let reversed = segments[index].chars().rev().collect::<String>();
+            let mut next = current.clone();
+            next.push(reversed);
+            combine(segments, index + 1, next, results, aggressive);
+        }
+    }
+
+    let mut results = Vec::new();
+    combine(segments, 0, Vec::new(), &mut results, aggressive);
+    results
+}
+
+
+
 pub fn generate(persona: &Persona, aggressive: bool) -> HashSet<String> {
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::sync::{Arc, atomic::{AtomicU64, AtomicBool, Ordering}};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
     let categories = collect_categories(persona);
     let date_fragments = derive_date_fragments(persona);
     let policy = &persona.policy;
 
-    let base_patterns = cross_categories(&categories, aggressive);
+    let base_segments = cross_categories_segments(&categories, aggressive);
 
-    base_patterns.par_iter()
-        .flat_map(|pattern| {
+    let counter = Arc::new(AtomicU64::new(0));
+    let running = Arc::new(AtomicBool::new(true));
+
+    // 🔥 Start telemetry thread only in aggressive mode
+    let monitor = if aggressive {
+        let counter_clone = counter.clone();
+        let running_clone = running.clone();
+
+        Some(thread::spawn(move || {
+            let start = Instant::now();
+            let pb = ProgressBar::new_spinner();
+
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}")
+                    .unwrap()
+            );
+
+            pb.enable_steady_tick(Duration::from_millis(100));
+
+            while running_clone.load(Ordering::Relaxed) {
+                let generated = counter_clone.load(Ordering::Relaxed);
+                let elapsed = start.elapsed().as_secs_f64();
+                let rate = if elapsed > 0.0 {
+                    (generated as f64 / elapsed) as u64
+                } else {
+                    0
+                };
+
+                pb.set_message(format!(
+                    "Generated: {} | {} passwords/sec | Elapsed: {}",
+                    generated,
+                    rate,
+                    format_duration(start.elapsed())
+                ));
+
+                thread::sleep(Duration::from_millis(500));
+            }
+
+            pb.finish_with_message("Generation complete.");
+        }))
+    } else {
+        None
+    };
+
+    // 🔥 Actual generation
+    let results: HashSet<String> = base_segments
+        .par_iter()
+        .flat_map(|segments| {
 
             let mut expanded = Vec::new();
 
-            expanded.push(pattern.clone());
-            expanded.push(pattern.chars().rev().collect());
+            expanded.push(segments.clone());
+
+            let mut reversed = segments.clone();
+            reversed.reverse();
+            expanded.push(reversed);
 
             for fragment in &date_fragments {
-                expanded.push(format!("{}{}", pattern, fragment));
-                expanded.push(format!("{}{}", fragment, pattern));
+                let mut with_suffix = segments.clone();
+                with_suffix.push(fragment.clone());
+                expanded.push(with_suffix);
+
+                let mut with_prefix = vec![fragment.clone()];
+                with_prefix.extend(segments.clone());
+                expanded.push(with_prefix);
             }
 
             expanded
         })
-        .flat_map(|candidate| {
+        .flat_map(|segments| {
 
-            if candidate.len() > policy.max_length {
-                return Vec::new();
-            }
-
-            case_variants(&candidate, aggressive)
+            segment_case_combinations(&segments, aggressive)
                 .into_iter()
-                .flat_map(|c| numeric_layer(&c, policy, aggressive))
-                .flat_map(|n| symbol_layer(&n, policy, aggressive))
-                .flat_map(|s| leet_layer(&s, aggressive))
-                .filter(|final_word| length_ok(final_word, policy))
+                .flat_map(|joined| {
+
+                    if joined.len() > policy.max_length {
+                        return Vec::new();
+                    }
+
+                    numeric_layer(&joined, policy, aggressive)
+                        .into_iter()
+                        .flat_map(|n| symbol_layer(&n, policy, aggressive))
+                        .flat_map(|s| leet_layer(&s, aggressive))
+                        .filter(|final_word| length_ok(final_word, policy))
+                        .map(|final_word| {
+                            counter.fetch_add(1, Ordering::Relaxed);
+                            final_word
+                        })
+                        .collect::<Vec<String>>()
+                })
                 .collect::<Vec<String>>()
         })
         .filter(|candidate| validate(candidate, policy))
-        .collect()
+        .collect();
+
+    // 🔥 Stop telemetry
+    running.store(false, Ordering::Relaxed);
+
+    if let Some(handle) = monitor {
+        let _ = handle.join();
+    }
+
+    results
+}
+
+fn format_duration(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
