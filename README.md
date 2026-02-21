@@ -132,7 +132,7 @@ curl https://sh.rustup.rs -sSf | sh
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/KYT-Know-Your-Target.git
+git clone https://github.com/Vedant-VB07/kyt.git
 cd KYT-Know-Your-Target
 ```
 
@@ -240,19 +240,17 @@ cargo run --release -- --bruteforce --resume 5000000
 
 For:
 
-- Name: vedant
-- Nicknames: vb, bond
-- Birthdate: 07032006
+- Name: john
+- Nicknames: doe, jelly
+- Birthdate: 01011999
 - Policy: 6–8 chars, upper+lower+digit+symbol
 
 KYT may generate:
 
 ```
-Vb0600!
-Bond06!
-Vedant07!
-V3d@nt06!
-Bond_06!
+doe0101!
+jelly!
+john1999
 ```
 
 ---
@@ -301,8 +299,7 @@ MIT License
 
 # 👨‍💻 Author
 
-Vedant Bondekar  
-Cybersecurity Researcher  
+Vedant Bondekar    
 
 ---
 
