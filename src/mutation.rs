@@ -97,15 +97,15 @@ fn derive_date_fragments(persona: &Persona) -> Vec<String> {
 
     for date in all_dates {
         if date.len() >= 8 {
-            fragments.push(date[0..2].to_string());  // day
-            fragments.push(date[2..4].to_string());  // month
-            fragments.push(date[0..4].to_string());  // ddmm
+            fragments.push(date[0..2].to_string());
+            fragments.push(date[2..4].to_string());
+            fragments.push(date[0..4].to_string());
         }
         if date.len() >= 4 {
-            fragments.push(date[date.len()-4..].to_string()); // yyyy
+            fragments.push(date[date.len()-4..].to_string());
         }
         if date.len() >= 2 {
-            fragments.push(date[date.len()-2..].to_string()); // yy
+            fragments.push(date[date.len()-2..].to_string());
         }
     }
 
@@ -114,59 +114,57 @@ fn derive_date_fragments(persona: &Persona) -> Vec<String> {
     fragments
 }
 
-fn cross_categories(categories: &[Category]) -> Vec<String> {
+fn cross_categories(categories: &[Category], aggressive: bool) -> Vec<String> {
     let mut results = Vec::new();
     let n = categories.len();
+    let max_depth = if aggressive { 4 } else { 3 };
 
-    // Depth 1
+    fn recurse(
+        categories: &[Category],
+        current: Vec<String>,
+        depth: usize,
+        max_depth: usize,
+        results: &mut Vec<String>,
+    ) {
+        if depth > 0 {
+            results.push(current.join(""));
+        }
+
+        if depth == max_depth {
+            return;
+        }
+
+        for cat in categories {
+            for val in &cat.values {
+                let mut next = current.clone();
+                next.push(val.clone());
+                recurse(categories, next, depth + 1, max_depth, results);
+            }
+        }
+    }
+
     for cat in categories {
         for val in &cat.values {
-            results.push(val.clone());
-        }
-    }
-
-    // Depth 2
-    for i in 0..n {
-        for j in 0..n {
-            if i == j { continue; }
-
-            for a in &categories[i].values {
-                for b in &categories[j].values {
-                    for sep in SEPARATORS {
-                        results.push(format!("{}{}{}", a, sep, b));
-                    }
-                }
-            }
-        }
-    }
-
-    // Depth 3
-    for i in 0..n {
-        for j in 0..n {
-            for k in 0..n {
-                if i == j || j == k || i == k { continue; }
-
-                for a in &categories[i].values {
-                    for b in &categories[j].values {
-                        for c in &categories[k].values {
-                            results.push(format!("{}{}{}", a, b, c));
-                        }
-                    }
-                }
-            }
+            recurse(categories, vec![val.clone()], 1, max_depth, &mut results);
         }
     }
 
     results
 }
 
-fn case_variants(word: &str) -> Vec<String> {
-    let mut variants = vec![word.to_string()];
-    variants.push(word.to_lowercase());
-    variants.push(word.to_uppercase());
+fn case_variants(word: &str, aggressive: bool) -> Vec<String> {
+    let mut variants = vec![
+        word.to_string(),
+        word.to_lowercase(),
+        word.to_uppercase(),
+    ];
 
     if let Some(first) = word.chars().next() {
         variants.push(first.to_uppercase().collect::<String>() + &word[1..]);
+    }
+
+    if aggressive {
+        variants.push(word.chars().rev().collect());
     }
 
     variants.sort();
@@ -174,25 +172,20 @@ fn case_variants(word: &str) -> Vec<String> {
     variants
 }
 
-fn reverse_variant(word: &str) -> String {
-    word.chars().rev().collect()
-}
-
-fn numeric_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
+fn numeric_layer(word: &str, policy: &PasswordPolicy, aggressive: bool) -> Vec<String> {
     if !policy.require_numeric {
         return vec![word.to_string()];
     }
 
-    let mut variants = Vec::new();
+    let max = if aggressive { 10000 } else { 1000 };
+    let width = if aggressive { 4 } else { 3 };
 
-    for i in 0..1000 { // 000–999
-        variants.push(format!("{}{:03}", word, i));
-    }
-
-    variants
+    (0..max)
+        .map(|i| format!("{}{:0width$}", word, i, width = width))
+        .collect()
 }
 
-fn symbol_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
+fn symbol_layer(word: &str, policy: &PasswordPolicy, aggressive: bool) -> Vec<String> {
     if !policy.require_symbol {
         return vec![word.to_string()];
     }
@@ -206,17 +199,30 @@ fn symbol_layer(word: &str, policy: &PasswordPolicy) -> Vec<String> {
         if word.len() > 1 {
             variants.push(format!("{}{}{}", &word[0..1], sym, &word[1..]));
         }
+
+        if aggressive && word.len() > 2 {
+            variants.push(format!("{}{}{}", &word[..2], sym, &word[2..]));
+        }
     }
 
     variants
 }
 
-fn leet_layer(word: &str) -> Vec<String> {
+fn leet_layer(word: &str, aggressive: bool) -> Vec<String> {
     let mut variants = vec![word.to_string()];
 
     for (from, to) in LEET_MAP {
         if word.contains(*from) {
             variants.push(word.replace(*from, &to.to_string()));
+
+            if aggressive {
+                variants.push(
+                    word.replace(*from, &to.to_string())
+                        .chars()
+                        .rev()
+                        .collect()
+                );
+            }
         }
     }
 
@@ -227,12 +233,12 @@ fn length_ok(word: &str, policy: &PasswordPolicy) -> bool {
     word.len() >= policy.min_length && word.len() <= policy.max_length
 }
 
-pub fn generate(persona: &Persona) -> HashSet<String> {
+pub fn generate(persona: &Persona, aggressive: bool) -> HashSet<String> {
     let categories = collect_categories(persona);
     let date_fragments = derive_date_fragments(persona);
     let policy = &persona.policy;
 
-    let base_patterns = cross_categories(&categories);
+    let base_patterns = cross_categories(&categories, aggressive);
 
     base_patterns.par_iter()
         .flat_map(|pattern| {
@@ -240,7 +246,7 @@ pub fn generate(persona: &Persona) -> HashSet<String> {
             let mut expanded = Vec::new();
 
             expanded.push(pattern.clone());
-            expanded.push(reverse_variant(pattern));
+            expanded.push(pattern.chars().rev().collect());
 
             for fragment in &date_fragments {
                 expanded.push(format!("{}{}", pattern, fragment));
@@ -255,11 +261,11 @@ pub fn generate(persona: &Persona) -> HashSet<String> {
                 return Vec::new();
             }
 
-            case_variants(&candidate)
+            case_variants(&candidate, aggressive)
                 .into_iter()
-                .flat_map(|c| numeric_layer(&c, policy))
-                .flat_map(|n| symbol_layer(&n, policy))
-                .flat_map(|s| leet_layer(&s))
+                .flat_map(|c| numeric_layer(&c, policy, aggressive))
+                .flat_map(|n| symbol_layer(&n, policy, aggressive))
+                .flat_map(|s| leet_layer(&s, aggressive))
                 .filter(|final_word| length_ok(final_word, policy))
                 .collect::<Vec<String>>()
         })

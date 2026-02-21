@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "KYT-Know_Your_Target"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "indicatif",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -322,20 +336,6 @@ name = "number_prefix"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
-name = "omni-profile-gen"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "indicatif",
- "rayon",
- "regex",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "once_cell"

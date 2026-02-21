@@ -13,23 +13,26 @@ use models::Persona;
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
-    /// Load persona from JSON file
     #[arg(long)]
     json: Option<String>,
 
-    /// Enable full brute-force streaming mode
     #[arg(long)]
     bruteforce: bool,
 
-    /// Resume brute-force from numeric index
     #[arg(long)]
     resume: Option<u128>,
+
+    /// Enable aggressive CTF mutation mode
+    #[arg(long)]
+    aggressive: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Load persona (interactive or JSON)
+    // ================================
+    // Load Persona (JSON or Interactive)
+    // ================================
     let persona: Persona = if let Some(file) = args.json {
         let data = fs::read_to_string(file)?;
         serde_json::from_str(&data)?
@@ -52,9 +55,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     // =================================
-    // PERSONA MUTATION MODE (Wordlist)
+    // PERSONA MUTATION MODE
     // =================================
-    println!("[*] Generating persona-based permutations...");
+    if args.aggressive {
+        println!("[*] Generating persona-based permutations (AGGRESSIVE CTF MODE)...");
+    } else {
+        println!("[*] Generating persona-based permutations...");
+    }
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -64,7 +71,8 @@ fn main() -> anyhow::Result<()> {
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
     pb.set_message("Processing mutation engine...");
 
-    let results = mutation::generate(&persona);
+    // ✅ Pass aggressive flag properly
+    let results = mutation::generate(&persona, args.aggressive);
 
     pb.finish_with_message("Generation complete.");
 
